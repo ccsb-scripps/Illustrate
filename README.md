@@ -17,4 +17,6 @@ Compilation
 --------------------------------------------------------------------
 Examples
 >cd example
->../illustrator-2016 < example/2hhb.inp
+>../illustrator-2016 < 2hhb.inp
+Convert if you have imageMagick
+>magick 2hhb.pnm 2hhb.png
