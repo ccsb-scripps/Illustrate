@@ -11,3 +11,6 @@
                      fixed bond intersections, ppm output
 
 --------------------------------------------------------------------
+compilation
+>gfortran illustrator-2016.f -o illustrator-2016
+>chmod +x  illustrator-2016
