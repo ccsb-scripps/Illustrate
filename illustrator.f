@@ -1,3 +1,4 @@
+C--------------------------------------------------------------------
 C                 ******************************
 C                     I L L U S T R A T O R
 C                   Biomolecular Illustration
@@ -5,7 +6,9 @@ C		  ******************************
 C		        David S Goodsell
 C--------------------------------------------------------------------
 C
-C April 2019 Simplified with only non-photorealistic rendering
+C		no anti-aliasing of edges
+C	July 19 2007--conical shadows, smooth outlines with kernels,
+C                     fixed  ppm output
 C
 C--------------------------------------------------------------------
 		integer*4 scanline(9000)
@@ -27,7 +30,6 @@ c ***** ATOMIC INFORMATION *****
 		real*4 coord(3,350000)
 		integer*4 type(350000),res(0:350000),su(0:350000)
 		real*4 radtype(16)
-		character chain,chainlast
 c ***** transformation matrices *****
 		real*4 matrixin(4,4),rm(4,4)
 c ***** STUFF FOR OUTLINES *****
@@ -40,7 +42,7 @@ c ***** Conical shadows *****
 c ***** ETC. *****
 		real*4 x,y,z,rx,ry,rz,xp,yp,zp,d
 		real*4 xn,yn,zn,ci,xs,xy,xz,cs
-		character*3 comcode(11),command
+		character*3 comcode(14),command
 		character*20 filename,inputfile
 		integer*4 ixsize,iysize, idepth
 		integer*4 ix,iy,iz
@@ -57,8 +59,10 @@ c--------------------------------------------------------------------
 		illustrationflag=0
 
 		data comcode/'rea','tra','xro','yro','zro','sca','cen',
-     &		             'wor','cal','ill','mod'/
-
+     &		             'wor','map','cal','bac','ill','bon','mod'/
+		psl=1.
+		psh=1.
+		lz=1.
 		call clearmatrix(rm)
 		l_low=1.
 		l_high=10.
@@ -82,7 +86,7 @@ c ********************* READ CONTROL CARDS ***************************
 		do icount=1,14
  100		if (command.eq.comcode(icount)) icommand=icount
 		enddo
-  		goto (1,2,3,4,5,6,7,8,111,12,14),icommand
+  		goto (1,2,3,4,5,6,7,8,10,111,11,12,13,14),icommand
 		write (6,102) ' ***** invalid control card read: ',
      &  command, ' ***** '
 		goto 10
@@ -121,22 +125,17 @@ C	default 50% gray
  21		format(a6,a10)
 c --- read atoms and classify ---
 		n=0
-	        nsu=0
-		chain=" "
  7040		read(1,7100,end=7009) instring
-
 		if (instring(1:5).eq.'MODEL') then
 		  imodelcurrent=imodelcurrent+imodel
 		  goto 7040
 		endif
-
 		if ((instring(1:4).ne.'ATOM').and.
-     &              (instring(1:6).ne.'HETATM')) goto 7040
-
-     		read(instring,200) ires
+     &      (instring(1:6).ne.'HETATM')) goto 7040
+     	read(instring,200) ires
 		do ides=1,ndes
 
- 		if (instring(1:6).ne.atomdescriptor(ides)(1:6)) goto 7050
+ 		 if (instring(1:6).ne.atomdescriptor(ides)(1:6)) goto 7050
 
  		 do ia=1,10
  		  if (descriptor(ides)(ia:ia).eq.'-') goto 7060
@@ -145,22 +144,14 @@ c --- read atoms and classify ---
 		enddo
 
  		 if ((ires.lt.resrange(1,ides)).or.
-     &               (ires.gt.resrange(2,ides))) goto 7050
+     &        (ires.gt.resrange(2,ides))) goto 7050
 
 		 if (inptype(ides).eq.0) goto 7040
 
-C found an atom to save
  		 n=n+1
 		 read(instring,300) (coord(i,n),i=1,3)
 		 type(n)=inptype(ides)
-C assign subunits automatically
-		chain=instring(22:22)
-		if (chain.ne.chainlast) then
-		  nsu=nsu+1
-		  chainlast=chain
-		endif
-		su(n)=nsu
-c	 su(n)=inpsu(ides)+imodelcurrent
+		 su(n)=inpsu(ides)+imodelcurrent
 		 res(n)=ires
 		 goto 7040
  7050 	continue
@@ -168,8 +159,10 @@ c	 su(n)=inpsu(ides)+imodelcurrent
 		goto 7040
 c --- done ---         
  7009		write(6,*)' atoms read: ', n, ' from: ',inputfile
-		write(6,*) " number of subunits: ",nsu
 		write(6,*)' '
+c	 do j=1,n
+c	 write(99,*) (coord(i,j),i=1,3),type(j),su(j),res(j)
+c	 enddo
  7100	format(a80)
  200	format(22x,i4)
  300	format(30x,3f8.3)
@@ -189,7 +182,7 @@ c       TRANSLATION
 		write(6,*)
 		goto 10
 c--------------------------------------------------------------------
-c	Z ROTATION
+c		Z ROTATION
  5		call clearmatrix(matrixin)
 		read(5,*) angle
 		write(6,*) 'z rotation : ',angle
@@ -201,7 +194,7 @@ c	Z ROTATION
 		call catenate(rm,matrixin)
 		goto 10
 c--------------------------------------------------------------------
-c	Y ROTATION
+c		Y ROTATION
  4		call clearmatrix(matrixin)
 		read(5,*) angle
 		write(6,*) 'y rotation : ',angle
@@ -213,7 +206,7 @@ c	Y ROTATION
 		call catenate(rm,matrixin)
 		goto 10
 c--------------------------------------------------------------------
-c	X ROTATION
+c		X ROTATION
  3		call clearmatrix(matrixin)
 		read(5,*) angle
 		write(6,*) 'x rotation : ',angle
@@ -319,9 +312,20 @@ c
 		if (iysize.gt.3000) iysize=3000
 		write(6,*) 'input value for image size', ixsize,iysize
 		goto 10
+ 201		format(4f12.5)
  202		format(1x,a20,1x,8f7.2)
- 204    	format(1x,a20,1x,8i7)
- 207    	format(/1x,a20/)
+ 203    format(3(2f8.5,i8,f8.5),4f8.2)
+ 204    format(1x,a20,1x,8i7)
+ 205		format(6i8,2f10.4)
+ 206		format(4i8)
+ 207    format(/1x,a20/)
+ 208		format(8f10.5)
+ 209		format(f10.5,i8)
+c--------------------------------------------------------------------
+ 11		continue
+c		***** read backgrounds *****
+C obsolete
+		goto 10
 c--------------------------------------------------------------------
  12		continue
 c		***** read illustration parameters *****
@@ -335,7 +339,12 @@ c		***** read illustration parameters *****
 		write(6,*) 'g parameters: ',g_low,g_high
 		goto 10
 c--------------------------------------------------------------------
- 111   		write (6,207) ' *begin calculation*'
+ 13		continue
+c		***** read bond parameters *****
+C obsolete
+		goto 10
+c--------------------------------------------------------------------
+ 111    write (6,207) ' *begin calculation*'
 c ***** Populate conical shadow table ****
 		conemax=50.
 		do i=-51,51
@@ -423,7 +432,7 @@ c ***** OPEN OUTPUT FILES *****
 		 write(9,1003) "P3"
 		 write(9,1004) iysize,ixsize
 		 write(9,1004) 255
- 1004		format(2i5)
+ 1004	format(2i5)
  113		format(a20)
 c ***** APPLY TRANSLATION AND SCALING *****
 		do ia=1,n
@@ -532,7 +541,9 @@ c ***** PROCESSING OF THE IMAGE BEGINS HERE*****
 		do ix=1,ixsize
 		do iy=1,iysize
 
-c ***** CONICAL SHADOW TESTING *****
+c ***** SHADOW TESTING *****
+		psh=1.
+c		--- calculate conical shadows  ---
 		pconetot=1.
 		    if ((icone.ne.0).and.(atom(ix,iy).ne.0)) then	
 		do i=-50,50,5
@@ -550,6 +561,7 @@ c ***** CONICAL SHADOW TESTING *****
 		enddo
 		pconetot=max(pconetot,pshadowmax)
 		endif
+c   		if (type(atom(ix,iy)).eq.16) psh=1.
 c ***** CALCULATE THE FOG PERCENTAGE (DEPTH CUEING) *****
 		pfh=pfogh-(zpix_max-zpix(ix,iy))/zpix_spread*pfogdiff
     		if (zpix(ix,iy).lt.zpix_min) pfh=1.
@@ -651,6 +663,7 @@ c ---- combine subunit outlines and derivative outlines ----
 		endif
 c ***** CALCULATE THE TOTAL PIXEL INTENSITY *****
 
+	psh=min(psh,pconetot)
 	ropacity=0.
 	do icolor=1,3
 
@@ -659,7 +672,6 @@ c ***** CALCULATE THE TOTAL PIXEL INTENSITY *****
      &     (1.-pfh)*rfog(icolor) 
 
 	pix(ix,iy,icolor)=(1.-l_opacity)*rcolor
-
 c ----calculate pixel opacity
 	if (type(atom(ix,iy)).ne.0) ropacity=1.
 	pix(ix,iy,4)=max(ropacity,l_opacity)
