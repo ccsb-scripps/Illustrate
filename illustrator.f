@@ -1,606 +1,668 @@
-C--------------------------------------------------------------------
 C                 ******************************
-C                     I L L U S T R A T O R
+C                      I L L U S T R A T E 
 C                   Biomolecular Illustration
 C		  ******************************
-C		        David S Goodsell
+C		  copyright 2019 David S Goodsell
+C
+C Licensed under the Apache License, Version 2.0 (the "License");
+C you may not use this file except in compliance with the License.
+C You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+C Unless required by applicable law or agreed to in writing, software
+C distributed under the License is distributed on an "AS IS" BASIS,
+C WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+C See the License for the specific language governing permissions and
+C limitations under the License
+C
+C This work was supported by Damon Runyon-Walter Winchell Cancer Research Fund Fellowship DRG 972,
+C the US National Institutes of Health R01-GM120604 and the RCSB Protein Data Bank.
+C
 C--------------------------------------------------------------------
 C
-C		no anti-aliasing of edges
-C	July 19 2007--conical shadows, smooth outlines with kernels,
-C                     fixed  ppm output
+C DS Goodsell & AJ Olson (1992) "Molecular Illustration in Black and White" JMolGraphics 10, 235-240.
 C
 C--------------------------------------------------------------------
-		integer*4 scanline(9000)
+C compile: gfortran illustrate.f -o illustrate
+C run: illustrate < command_file
+C
+C Command file is read from unit 5
+C Command file has command cards, followed by parameter cards
+C Idiosyncracies (warning, postdoc code from the 90s!):
+C *** almost no error checking
+C *** must issue command cards in this order
+C *** any number of rotation cards may be added, and they are concatenated when added
+C      this means they are effectively applied last to first
+C      so if you're progressively refining a position, add new rotations to the top of the list
+C *** origin at upper left, +x down, +y left to right, +z towards viewer, molecules clipped at z=0
+C
+C read                                          #READ command
+C 2hhb.pdb                                      #PDB format coordinate file
+C HETATM-----HOH-- 0,9999, 0.5,0.5,0.5, 0.0     #selection/rendering cards
+C ATOM  -H-------- 0,9999, 0.5,0.5,0.5, 0.0
+C ATOM  H--------- 0,9999, 0.5,0.5,0.5, 0.0
+C ATOM  -C-------A 0,9999, 1.0,0.6,0.6, 1.6
+C ATOM  -S-------A 0,9999, 1.0,0.5,0.5, 1.8
+C ATOM  ---------A 0,9999, 1.0,0.5,0.5, 1.5
+C ATOM  -C-------C 0,9999, 1.0,0.6,0.6, 1.6
+C ATOM  -S-------C 0,9999, 1.0,0.5,0.5, 1.8
+C ATOM  ---------C 0,9999, 1.0,0.5,0.5, 1.5
+C ATOM  -C-------- 0,9999, 1.0,0.8,0.6, 1.6
+C ATOM  -S-------- 0,9999, 1.0,0.7,0.5, 1.8
+C ATOM  ---------- 0,9999, 1.0,0.7,0.5, 1.5
+C HETATMFE---HEM-- 0,9999, 1.0,0.8,0.0, 1.8
+C HETATM-C---HEM-- 0,9999, 1.0,0.3,0.3, 1.6
+C HETATM-----HEM-- 0,9999, 1.0,0.1,0.1, 1.5
+C END                                          #end of READ commad
+C center                                       #CENTER command 
+C auto                                         #use autocentering
+C trans                                        #TRANSLATION command
+C 0.,0.,0.                                     #x,y,z for translation
+C scale                                        #SCALE command
+C 12.0                                         #scale value (pixels/Angstrom)
+C zrot                                         #ROTATION command
+C 90.                                          #rotation angle (deg)
+C wor                                          #WORLD rendering parameter
+C 1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0              #rgb background, rgb fog, fractional opacity of fog front & back
+C 1,0.0023,2.0,1.0,0.2                         #soft shadow parameters
+C -30,-30                                      #image size, negative for autosizing with padding
+C illustrate                                   #ILLUSTRATION command
+C 3.0,10.0,4,0.0,5.0                           #contour outlines
+C 3.0,10.0                                     #subunit outlines
+C 3.0,8.0,6000.                                #residue outlines
+C calculate                                    #CALCULATE command
+C 2hhb.pnm                                     #image file name in ppm format
+C
+C--------------------------------------------------------------------
+c ***** OUTPUT SCAN LINE *****
+	integer*4 scanline(9000)
 c ***** FRAME BUFFER WITH COLORS *****
-		real*4 pix(-10:3008,-10:3008,4)
+	real*4 pix(-10:3008,-10:3008,4)
 c ***** FRAME BUFFER CONTAINING THE z HEIGHT *****
-		real*4 zpix(-10:3008,-10:3008)
+	real*4 zpix(-10:3008,-10:3008)
 c ***** FRAME BUFFER CONTAINING THE ATOM NUMBER *****
-		integer*4 atom(-10:3008,-10:3008)
-		integer*4 n,ia,iatom
+	integer*4 atom(-10:3008,-10:3008)
+	integer*4 n,ia,iatom
 c ***** SHADING MAPS FOR THE EIGHT ATOM TYPES *****
-		real*4 sphdat(0:32000,3)
-		integer*4 numpix
+	real*4 sphdat(0:32000,3)
+	integer*4 numpix
 c ***** PHONG SHADING PARAMETERS ****** 
-		real*4 colortype(0:16,3)
-		real*4 rfog(3)
-		integer*4 iback(3),ifog(3)
+	real*4 colortype(0:1000,3)
+	real*4 rback(3),rfog(3)
 c ***** ATOMIC INFORMATION *****
-		real*4 coord(3,350000)
-		integer*4 type(350000),res(0:350000),su(0:350000)
-		real*4 radtype(16)
+	real*4 coord(3,350000)
+	integer*4 type(350000),res(0:350000),su(0:350000)
+	real*4 radtype(1000)
+	character chain,chainlast
 c ***** transformation matrices *****
-		real*4 matrixin(4,4),rm(4,4)
+	real*4 matrixin(4,4),rm(4,4)
 c ***** STUFF FOR OUTLINES *****
-		real*4 l_opacity,l_opacity_ave,g_opacity,opacity
-		real*4 l(-1:1,-1:1),g
-		real*4 l_low,l_high,g_low,g_high,l_low16,l_high16
-		real*4 l_diff_min, l_diff_max
+	real*4 l_opacity,l_opacity_ave,g_opacity,opacity
+	real*4 l(-1:1,-1:1),g
+	real*4 l_low,l_high,g_low,g_high
+	real*4 l_diff_min, l_diff_max
 c ***** Conical shadows *****
-		real*4 rtable(-51:51,-51:51),coneangle,pcone,rcone
+	real*4 rtable(-51:51,-51:51),coneangle,pcone,rcone
 c ***** ETC. *****
-		real*4 x,y,z,rx,ry,rz,xp,yp,zp,d
-		real*4 xn,yn,zn,ci,xs,xy,xz,cs
-		character*3 comcode(14),command
-		character*20 filename,inputfile
-		integer*4 ixsize,iysize, idepth
-		integer*4 ix,iy,iz
-		integer illustrationflag
+	real*4 x,y,z,rx,ry,rz,xp,yp,zp,d
+	real*4 xn,yn,zn,ci,xs,xy,xz,cs
+	character*3 comcode(10),command
+	character*20 filename,inputfile
+	integer*4 ixsize,iysize, idepth
+	integer*4 ix,iy,iz
+	integer illustrationflag
 c ***** stuff for reading atoms
-		integer*4 resrange(2,100),inptype(100),inpsu(100)
-		character*6 atomdescriptor(100)
-		character*10 descriptor(100)
-		character*80 instring
+	integer*4 resrange(2,100),inptype(100),inpsu(100)
+	character*6 atomdescriptor(100)
+	character*10 descriptor(100)
+	character*80 instring
 c--------------------------------------------------------------------
-		pi=3.141592
-		rscale=1.
+c ***** Initialize a few things *****
+c--------------------------------------------------------------------
+	rscale=1.
 
-		illustrationflag=0
+	illustrationflag=0
 
-		data comcode/'rea','tra','xro','yro','zro','sca','cen',
-     &		             'wor','map','cal','bac','ill','bon','mod'/
-		psl=1.
-		psh=1.
-		lz=1.
-		call clearmatrix(rm)
-		l_low=1.
-		l_high=10.
-		g_low=350000.
-		g_high=21000.
-		xshmax=4000
-		yshmax=4000
-		su(0)=9999
-		res(0)=9999
-		xtran=0.
-		ytran=0.
-		ztran=0.
-		l_diff_max=50.
-		l_diff_min=1.
-		ixsize=0
-		iysize=0
-		imodel=0
+	data comcode/'rea','tra','xro','yro','zro','sca','cen',
+     &		             'wor','cal','ill'/
+
+	call clearmatrix(rm)
+	l_low=1.
+	l_high=10.
+	g_low=350000.
+	g_high=21000.
+	xshmax=4000
+	yshmax=4000
+	su(0)=9999
+	res(0)=9999
+	xtran=0.
+	ytran=0.
+	ztran=0.
+	l_diff_max=50.
+	l_diff_min=1.
+	ixsize=0
+	iysize=0
 c ********************* READ CONTROL CARDS ***************************
- 10		read (5,101,end=999) command
-		icommand=10
-		do icount=1,14
- 100		if (command.eq.comcode(icount)) icommand=icount
-		enddo
-  		goto (1,2,3,4,5,6,7,8,10,111,11,12,13,14),icommand
-		write (6,102) ' ***** invalid control card read: ',
-     &  command, ' ***** '
-		goto 10
- 101		format (a3)
- 102		format (a35,a3,a7)
+ 10	read (5,101,end=999) command
+	icommand=10
+	do icount=1,10
+ 100	if (command.eq.comcode(icount)) icommand=icount
+	enddo
+  	goto (1,2,3,4,5,6,7,8,111,12),icommand
+	write (6,102) ' ***** invalid control card read: ',
+     &       command, ' ***** '
+	goto 10
+ 101	format (a3)
+ 102	format (a35,a3,a7)
 c--------------------------------------------------------------------
-C  *** read and classify atoms ***
+c  *** read and classify atoms ***
 c
  1	continue
-		imodelcurrent=0
-		read(5,113) inputfile
-		open(1,file=inputfile,form='formatted',status='old')
+	read(5,113) inputfile
+	open(1,file=inputfile,form='formatted',status='old')
 c --- read atom descriptors ---
-		ndes=0
-C	default 50% gray
-	do i=1,16
+c param: atom descriptor cards
+c ATOM  -CA--ALA-A 0,9999,0.5,0.5,0.5,1.6
+c ^^^^^^   ATOM or HETATM, matched with columns 1-6 of PDB record
+c       ^^^^^^^^^^ compared to columns 13-22 of PDB record
+c                  "-" is a wildcard
+c                  ^^^^^^ residue number range
+c                         ^^^^^^^^^^^ r,g,b (0.-1.)
+c                                     ^^^ radius (Angstrom)
+c cards are read in order, and if there is a match, the atom is assigned that type
+c cards are read until one is found without "ATOM  " or "HETATM"
+c
+	ndes=0
+c --- default 50% gray ---
+	do i=0,1000
 	do j=1,3
 	colortype(i,j)=.5
 	enddo
 	enddo
- 7020		read(5,7100) instring
- 		if (instring(1:3).eq.'END') goto 7030
- 		  ndes=ndes+1
- 		  read(instring,21) atomdescriptor(ndes),descriptor(ndes)
- 		  read(instring(18:80),*) (resrange(i,ndes),i=1,2),
-     &                      inptype(ndes),inpsu(ndes),rr,rg,rb,rad
-	           colortype(inptype(ndes),1)=rr
-	           colortype(inptype(ndes),2)=rg
-	           colortype(inptype(ndes),3)=rb
-		   radtype(inptype(ndes))=rad
-		goto 7020
- 7030		write(6,*) ' atom descriptors: ',ndes
-	do i=1,16
-	write(6,*) "type, color ",i,(colortype(i,j),j=1,3)
+ 7020	read(5,7100) instring
+ 	if (instring(1:3).eq.'END') goto 7030
+ 	  ndes=ndes+1
+ 	  read(instring,21) atomdescriptor(ndes),descriptor(ndes)
+ 	  read(instring(18:80),*) (resrange(i,ndes),i=1,2),
+     &                     rr,rg,rb,rad
+	  colortype(ndes,1)=rr
+	  colortype(ndes,2)=rg
+	  colortype(ndes,3)=rb
+	  radtype(ndes)=rad
+	goto 7020
+ 7030	write(6,*) ' atom descriptors: ',ndes
+	do i=1,ndes
+	write(6,*) "type, color, radius ",i,(colortype(i,j),j=1,3),
+     &     radtype(i)
 	enddo
- 21		format(a6,a10)
+ 21	format(a6,a10)
 c --- read atoms and classify ---
-		n=0
- 7040		read(1,7100,end=7009) instring
-		if (instring(1:5).eq.'MODEL') then
-		  imodelcurrent=imodelcurrent+imodel
-		  goto 7040
-		endif
-		if ((instring(1:4).ne.'ATOM').and.
+	n=0
+	nsu=0
+	chain=" "
+ 7040	read(1,7100,end=7009) instring
+	if (instring(1:5).eq."MODEL") nsu=nsu+1
+
+	if ((instring(1:4).ne.'ATOM').and.
      &      (instring(1:6).ne.'HETATM')) goto 7040
+
      	read(instring,200) ires
-		do ides=1,ndes
+	do ides=1,ndes
 
- 		 if (instring(1:6).ne.atomdescriptor(ides)(1:6)) goto 7050
+ 	if (instring(1:6).ne.atomdescriptor(ides)(1:6)) goto 7050
 
- 		 do ia=1,10
- 		  if (descriptor(ides)(ia:ia).eq.'-') goto 7060
- 		  if (instring(12+ia:12+ia).ne.descriptor(ides)(ia:ia)) goto 7050
- 7060 	         continue
-		enddo
+ 	 do ia=1,10
+ 	  if (descriptor(ides)(ia:ia).eq.'-') goto 7060
+ 	  if (instring(12+ia:12+ia).ne.descriptor(ides)(ia:ia)) goto 7050
+ 7060 	  continue
+	enddo
 
- 		 if ((ires.lt.resrange(1,ides)).or.
-     &        (ires.gt.resrange(2,ides))) goto 7050
+ 	 if ((ires.lt.resrange(1,ides)).or.
+     &       (ires.gt.resrange(2,ides))) goto 7050
 
-		 if (inptype(ides).eq.0) goto 7040
+	 if (radtype(ides).eq.0) goto 7040
 
- 		 n=n+1
-		 read(instring,300) (coord(i,n),i=1,3)
-		 type(n)=inptype(ides)
-		 su(n)=inpsu(ides)+imodelcurrent
-		 res(n)=ires
-		 goto 7040
+c --- found an atom to save ---
+ 	 n=n+1
+	 read(instring,300) (coord(i,n),i=1,3)
+	 type(n)=ides
+C --- assign subunits automatically ---
+	chain=instring(22:22)
+	if (chain.ne.chainlast) then
+	  nsu=nsu+1
+	  chainlast=chain
+	endif
+	su(n)=nsu
+	 res(n)=ires
+	 goto 7040
  7050 	continue
-		enddo
-		goto 7040
-c --- done ---         
- 7009		write(6,*)' atoms read: ', n, ' from: ',inputfile
-		write(6,*)' '
-c	 do j=1,n
-c	 write(99,*) (coord(i,j),i=1,3),type(j),su(j),res(j)
-c	 enddo
+	enddo
+	goto 7040
+c --- done reading atoms ---         
+ 7009	write(6,*)' atoms read: ', n, ' from: ',inputfile
+	write(6,*) " number of subunits: ",nsu
+	write(6,*)' '
  7100	format(a80)
  200	format(22x,i4)
  300	format(30x,3f8.3)
-		goto 10
-c--------------------------------------------------------------------
- 14		read(5,*) imodel
-		write(6,*) "model increment", imodel
-		goto 10
+	goto 10
 c--------------------------------------------------------------------
 c       TRANSLATION 
- 2		continue
-		read(5,*) xtrani,ytrani,ztrani
-		xtran=xtran+xtrani
-		ytran=ytran+ytrani
-		ztran=ztran+ztrani
- 		write(6,*) 'translation vector : ',xtran,ytran,ztran
-		write(6,*)
-		goto 10
+ 2	continue
+	read(5,*) xtrani,ytrani,ztrani
+	xtran=xtran+xtrani
+	ytran=ytran+ytrani
+	ztran=ztran+ztrani
+ 	write(6,*) 'translation vector : ',xtran,ytran,ztran
+	write(6,*)
+	goto 10
 c--------------------------------------------------------------------
-c		Z ROTATION
- 5		call clearmatrix(matrixin)
-		read(5,*) angle
-		write(6,*) 'z rotation : ',angle
-		angle=angle*3.141592/180.
-		matrixin(1,1)=cos(angle)
-		matrixin(1,2)=-sin(angle)
-		matrixin(2,1)=sin(angle)
-		matrixin(2,2)=cos(angle)
-		call catenate(rm,matrixin)
-		goto 10
+c	Z ROTATION
+ 5	call clearmatrix(matrixin)
+	read(5,*) angle
+	write(6,*) 'z rotation : ',angle
+c --minus sign is because original rotations were left-handed! (warning: postdoc code)
+	angle=-angle*3.141592/180.
+	matrixin(1,1)=cos(angle)
+	matrixin(1,2)=-sin(angle)
+	matrixin(2,1)=sin(angle)
+	matrixin(2,2)=cos(angle)
+	call catenate(rm,matrixin)
+	goto 10
 c--------------------------------------------------------------------
-c		Y ROTATION
- 4		call clearmatrix(matrixin)
-		read(5,*) angle
-		write(6,*) 'y rotation : ',angle
-		angle=angle*3.141592/180.
-		matrixin(1,1)=cos(angle)
-		matrixin(1,3)=sin(angle)
-		matrixin(3,1)=-sin(angle)
-		matrixin(3,3)=cos(angle)
-		call catenate(rm,matrixin)
-		goto 10
+c	Y ROTATION
+ 4	call clearmatrix(matrixin)
+	read(5,*) angle
+	write(6,*) 'y rotation : ',angle
+	angle=-angle*3.141592/180.
+	matrixin(1,1)=cos(angle)
+	matrixin(1,3)=sin(angle)
+	matrixin(3,1)=-sin(angle)
+	matrixin(3,3)=cos(angle)
+	call catenate(rm,matrixin)
+	goto 10
 c--------------------------------------------------------------------
-c		X ROTATION
- 3		call clearmatrix(matrixin)
-		read(5,*) angle
-		write(6,*) 'x rotation : ',angle
-		angle=angle*3.141592/180.
-		matrixin(2,2)=cos(angle)
-		matrixin(2,3)=-sin(angle)
-		matrixin(3,2)=sin(angle)
-		matrixin(3,3)=cos(angle)
-		call catenate(rm,matrixin)
-		goto 10
+c	X ROTATION
+ 3	call clearmatrix(matrixin)
+	read(5,*) angle
+	write(6,*) 'x rotation : ',angle
+	angle=-angle*3.141592/180.
+	matrixin(2,2)=cos(angle)
+	matrixin(2,3)=-sin(angle)
+	matrixin(3,2)=sin(angle)
+	matrixin(3,3)=cos(angle)
+	call catenate(rm,matrixin)
+	goto 10
 c--------------------------------------------------------------------
 c       SCALE 
- 6		continue
-		read(5,*) rscalei
-		rscale=rscale*rscalei
-		write(6,*) 'scale factor : ',rscale
-		write(6,*)
-		goto 10
+ 6	continue
+	read(5,*) rscalei
+	rscale=rscale*rscalei
+	write(6,*) 'scale factor : ',rscale
+	write(6,*)
+	goto 10
 c--------------------------------------------------------------------
-c		CENTERING of coordinates
-c   three options: CEN(TER-OF-MASS) will place c-o-m on (0,0,0)
-c                  EXT(ERNAL) will place input coordinates on (0,0,0)
-c                  AUT(O-CENTER) will center the rotated coordinates
+c	CENTERING of coordinates
+c       options: CEN(TER) will center on max/min coordinates in x,y,z
+c                         so upper half of molecule will be clipped
+c                AUT(O-CENTER) will center the rotated coordinates
 c                        in the frame, and place the uppermost atom
 c                        just below the image plane
-c    explicit TRANSLATIONs are applied after the centering
- 7		continue
- 		read(5,101) command
- 		autocenter=0
- 		if (command.eq.'aut') then
-		   autocenter=1
-		   goto 10
-		endif
+c       ROTATIONs are applied before the centering
+c       TRANSLATIONs are applied after the centering
+ 7	continue
+ 	read(5,101) command
+ 	autocenter=0
+ 	if (command.eq.'aut') then
+	   autocenter=1
+	   goto 10
+	endif
 
-		if (command.eq.'ext') then
-		write(6,*) 'reading external centering vector'
-		read(5,*) xtranc,ytranc,ztranc
-		write(6,*) 'external centering vector: ',xtranc,ytranc,ztranc
-		endif
+	if (command.eq.'cen') then
+	   autocenter=2
+	   goto 10
+	endif
 
-		if (command.eq.'cen') then
-		xmin=10000.
-		xmax=-10000.
- 		ymin=10000.
-		ymax=-10000.
- 		zmin=10000.
-		zmax=-10000.
-		write(6,*) 'centering on center of mass'
-
-		do ia=1,n
-		xmin=MIN(xmin,coord(1,ia))
-		xmax=MAX(xmax,coord(1,ia))
-		ymin=MIN(ymin,coord(2,ia))
-		ymax=MAX(ymax,coord(2,ia))
-		zmin=MIN(zmin,coord(3,ia))
-		zmax=MAX(zmax,coord(3,ia))
-		enddo
-
-		write(6,*) 'min coordinates : ',xmin,ymin,zmin
-		write(6,*) 'max coordinates : ',xmax,ymax,zmax
-		xtranc=-xmin-(xmax-xmin)/2.
-		ytranc=-ymin-(ymax-ymin)/2.
-		ztranc=-zmin-(zmax-zmin)/2.
-		write(6,*) 'centering vector : ',xtranc,ytranc,ztranc
-		endif
-
-		do ia=1,n
-		 coord(1,ia)=coord(1,ia)+xtranc
-		 coord(2,ia)=coord(2,ia)+ytranc
- 		 coord(3,ia)=coord(3,ia)+ztranc
-		 if (su(ia).eq.0) coord(3,ia)=coord(3,ia)-(zmax-zmin)
-		enddo
-
-		goto 10
+	goto 10
 c--------------------------------------------------------------------
-C read parameters that describe the environment
- 8		continue
-c
-		read (5,*) (iback(i),i=1,3),(ifog(i),i=1,3),pfogh,pfogl
-		if (pfogl.lt.0.) then
-		   pfogl=-pfogl
-		endif
+c	WORLD parameters that describe the environment 
+ 8	continue
+ 
+c param: rback(3) -- rgb of background, 0.-1.
+c param: rfog(3) -- rgb of fog, 0.-1.
+c param: pfogh,pfogl -- fractional intensity of fog color at front and back of molecule
 
-		do i=1,3
-		if (iback(i).gt.255) iback(i)=255
-		if (ifog(i).gt.255) ifog(i)=255
- 230		rfog(i)=float(ifog(i))/256.
-	        colortype(0,i)=float(iback(i))/255.
-		enddo
+	read (5,*) (rback(i),i=1,3),(rfog(i),i=1,3),pfogh,pfogl
 
-		if (pfogh.gt.1.) pfogh=1.
-		if (pfogl.gt.1.) pfogl=1.
+	if (pfogl.lt.0.) then
+	   pfogl=-pfogl
+	endif
 
-		write (6,204) ' background inten. :',(iback(i),i=1,3)
-		write (6,204) ' fog intensity :    ',(ifog(i),i=1,3)
-		write (6,202) ' upper fog percent :',pfogh*100.
-		write (6,202) ' lower fog percent :',pfogl*100.
-		pfogdiff=pfogh-pfogl
-		read (5,*) icone,pcone,coneangle,rcone,pshadowmax
-		if (icone.ne.0) write (6,202) ' draw conical shadows'
-		read(5,*) ixsize,iysize
-		if (ixsize.gt.3000) ixsize=3000
-		if (iysize.gt.3000) iysize=3000
-		write(6,*) 'input value for image size', ixsize,iysize
-		goto 10
- 201		format(4f12.5)
- 202		format(1x,a20,1x,8f7.2)
- 203    format(3(2f8.5,i8,f8.5),4f8.2)
- 204    format(1x,a20,1x,8i7)
- 205		format(6i8,2f10.4)
- 206		format(4i8)
- 207    format(/1x,a20/)
- 208		format(8f10.5)
- 209		format(f10.5,i8)
+	do i=1,3
+	if (rback(i).gt.1.) rback(i)=1.
+	if (rfog(i).gt.1.) rfog(i)=1.
+        colortype(0,i)=rback(i)
+	enddo
+
+	if (pfogh.gt.1.) pfogh=1.
+	if (pfogl.gt.1.) pfogl=1.
+
+	write (6,202) ' background inten. :',(rback(i),i=1,3)
+	write (6,202) ' fog intensity :    ',(rfog(i),i=1,3)
+	write (6,202) ' upper fog percent :',pfogh*100.
+	write (6,202) ' lower fog percent :',pfogl*100.
+	pfogdiff=pfogh-pfogl
+
+c param: icone -- flag, 0=no soft shadow, other=soft shadow
+c param: pcone -- fractional shadowing contribution from each atom (0.0023)
+c                 larger=darker shadow
+c param: coneangle -- angle of shadowing around each atom (2.0)
+c                     larger values give tighter shadowed region
+c param: rcone -- shadowing applied only if z values of atoms are
+c                 greater than rcone (removes many small shadows in
+c                 creases) (1.0 A)
+c param: pshadowmax -- maximal shadowing amount (0.7) smaller=darker shadow
+
+	read (5,*) icone,pcone,coneangle,rcone,pshadowmax
+
+	if (icone.ne.0) write (6,202) ' draw conical shadows'
+
+c param: ixsize,iysize -- vertical and horizonal size (pixels)
+c        negative values are autosized, padded by the value 
+
+	read(5,*) ixsize,iysize
+
+	if (ixsize.gt.3000) ixsize=3000
+	if (iysize.gt.3000) iysize=3000
+	write(6,*) 'input value for image size', ixsize,iysize
+	goto 10
+ 202	format(1x,a20,1x,8f7.2)
+ 207   	format(/1x,a20/)
 c--------------------------------------------------------------------
- 11		continue
-c		***** read backgrounds *****
-C obsolete
-		goto 10
+c	ILLUSTRATION parameters for outlines
+ 12	continue
+	illustrationflag=1
+
+c param: l_low, l_high -- thresholds for drawing contour outlines (3.,8.)
+c	                  higher values give fewer outlines
+c                         narrower range gives jaggier outlines
+c	                  values are based on the number of pixels in the kernel
+c param: ikernel -- kernel for doing derivative, values=1,2,3,4 (4)
+c param: l_diff_min, l_diff_max -- range of difference in z-values used for calculation (0.,5. A)
+c	                  0-1 gives outlines around every atom, 0-1000 outlines the whole molecule
+c param: r_low, r_high -- thresholds for drawing subunit outlines (3.,8.)
+c param: g_low, g_high -- thresholds for drawing residue outlines (3.,8.)
+c param: resdiff -- residue outlines drawn for atoms with this difference in residue numbers or greater
+
+	read(5,*) l_low,l_high,ikernel,l_diff_min,l_diff_max
+	read(5,*) r_low,r_high
+	read(5,*) g_low,g_high,resdiff
+
+	write(6,*) 'illustration parameters'
+	write(6,*) 'l parameters: ',l_low,l_high
+	write(6,*) 'g parameters: ',g_low,g_high
+	goto 10
 c--------------------------------------------------------------------
- 12		continue
-c		***** read illustration parameters *****
-		illustrationflag=1
-		read(5,*) l_low,l_high,l_low16,l_high16,ikernel,
-     &                    l_diff_min,l_diff_max
-		read(5,*) r_low,r_high
-		read(5,*) g_low,g_high,resdiff
-		write(6,*) 'illustration parameters'
-		write(6,*) 'l parameters: ',l_low,l_high
-		write(6,*) 'g parameters: ',g_low,g_high
-		goto 10
-c--------------------------------------------------------------------
- 13		continue
-c		***** read bond parameters *****
-C obsolete
-		goto 10
-c--------------------------------------------------------------------
- 111    write (6,207) ' *begin calculation*'
+ 111   	write (6,207) ' *begin calculation*'
 c ***** Populate conical shadow table ****
-		conemax=50.
-		do i=-51,51
-		do j=-51,51
-		 rtable(i,j)=sqrt(float(i)**2+float(j)**2)
-		 if (rtable(i,j).gt.conemax) rtable(i,j)=10000.
-		enddo
-		enddo
-		 rtable(0,0)=10000.
+	conemax=50.
+	do i=-51,51
+	do j=-51,51
+	 rtable(i,j)=sqrt(float(i)**2+float(j)**2)
+	 if (rtable(i,j).gt.conemax) rtable(i,j)=10000.
+	enddo
+	enddo
+	 rtable(0,0)=10000.
 c ***** SCALE RADII *****
-		do i=1,16
-		 radtype(i)=radtype(i)*rscale
-		 if (radtype(i).gt.radius_max) radius_max=radtype(i)
- 119		enddo
+	do i=1,ndes
+	 radtype(i)=radtype(i)*rscale
+	 if (radtype(i).gt.radius_max) radius_max=radtype(i)
+ 119	enddo
 c ***** APPLY THE ROTATION MATRIX *****
- 		do ia=1,n
-		rx=coord(1,ia)*rm(1,1)+coord(2,ia)*rm(2,1)+
-     &		   coord(3,ia)*rm(3,1)
-		ry=coord(1,ia)*rm(1,2)+coord(2,ia)*rm(2,2)+
-     &		   coord(3,ia)*rm(3,2)
-		rz=coord(1,ia)*rm(1,3)+coord(2,ia)*rm(2,3)+
-     &		   coord(3,ia)*rm(3,3)
-		coord(1,ia)=rx
-		coord(2,ia)=ry
-		coord(3,ia)=rz
- 150		continue
-		enddo
-c ***** APPLY AUTOCENTERING and AUTOCENTERING, if switched on *****
-		if (autocenter.eq.1) then
+ 	do ia=1,n
+	rx=coord(1,ia)*rm(1,1)+coord(2,ia)*rm(2,1)+
+     &	   coord(3,ia)*rm(3,1)
+	ry=coord(1,ia)*rm(1,2)+coord(2,ia)*rm(2,2)+
+     &	   coord(3,ia)*rm(3,2)
+	rz=coord(1,ia)*rm(1,3)+coord(2,ia)*rm(2,3)+
+     &	   coord(3,ia)*rm(3,3)
+	coord(1,ia)=rx
+	coord(2,ia)=ry
+	coord(3,ia)=rz
+ 150	continue
+	enddo
+c ***** APPLY AUTOCENTERING and AUTOSIZING, if switched on *****
+	if (autocenter.gt.0) then
 
-		xmin=10000.
-		xmax=-10000.
- 		ymin=10000.
-		ymax=-10000.
- 		zmin=10000.
-		zmax=-10000.
-		write(6,*) 'automating centering'
+	xmin=10000.
+	xmax=-10000.
+ 	ymin=10000.
+	ymax=-10000.
+ 	zmin=10000.
+	zmax=-10000.
 
-		do ia=1,n
-		 xmin=MIN(xmin,coord(1,ia))
-		 xmax=MAX(xmax,coord(1,ia))
-		 ymin=MIN(ymin,coord(2,ia))
-		 ymax=MAX(ymax,coord(2,ia))
-		 zmin=MIN(zmin,coord(3,ia))
-		 zmax=MAX(zmax,coord(3,ia))
- 117		continue
-		enddo
-		write(6,*) 'min coordinates : ',xmin,ymin,zmin
-		write(6,*) 'max coordinates : ',xmax,ymax,zmax
-		xtranc=-xmin-(xmax-xmin)/2.
-		ytranc=-ymin-(ymax-ymin)/2.
-		ztranc=-zmax-radius_max-1.
-		write(6,*) 'centering vector : ',xtranc,ytranc,ztranc
-c	if ((ixsize.le.0).or.(iysize.le.0)) then
-		  write(6,*)
-		  write(6,*) 'applying autosizing'
-		  write(6,*) 'x and y frame width: ',-ixsize,-iysize
-		  ixsize=-2.*ixsize+2.*radius_max+(xmax-xmin)*rscale
-		  iysize=-2.*iysize+2.*radius_max+(ymax-ymin)*rscale
-		  ixsize=min(ixsize,3000)
-		  iysize=min(iysize,3000)
-c	endif
+	do ia=1,n
+	 xmin=MIN(xmin,coord(1,ia))
+	 xmax=MAX(xmax,coord(1,ia))
+	 ymin=MIN(ymin,coord(2,ia))
+	 ymax=MAX(ymax,coord(2,ia))
+	 zmin=MIN(zmin,coord(3,ia))
+	 zmax=MAX(zmax,coord(3,ia))
+ 117	continue
+	enddo
+	write(6,*) 'min coordinates : ',xmin,ymin,zmin
+	write(6,*) 'max coordinates : ',xmax,ymax,zmax
+	xtranc=-xmin-(xmax-xmin)/2.
+	ytranc=-ymin-(ymax-ymin)/2.
+	if (autocenter.eq.1) then
+ 	   ztranc=-zmax-radius_max-1.
+	   write(6,*) 'automating centering'
+	endif
+	if (autocenter.eq.2) then
+	   ztranc=-zmin-(zmax-zmin)/2.
+	   write(6,*) 'x,y,z centering'
+	endif
 
-		do ia=1,n
-		 coord(1,ia)=coord(1,ia)+xtranc
-		 coord(2,ia)=coord(2,ia)+ytranc
-		 coord(3,ia)=coord(3,ia)+ztranc
-		 if (su(ia).eq.0) coord(3,ia)=coord(3,ia)-(zmax-zmin)
- 116		enddo
+	write(6,*) 'centering vector : ',xtranc,ytranc,ztranc
 
- 		endif
+	do ia=1,n
+	 coord(1,ia)=coord(1,ia)+xtranc
+	 coord(2,ia)=coord(2,ia)+ytranc
+	 coord(3,ia)=coord(3,ia)+ztranc
+c if (su(ia).eq.0) coord(3,ia)=coord(3,ia)-(zmax-zmin)
+ 	enddo
+
+	if ((ixsize.le.0).or.(iysize.le.0)) then
+	  write(6,*)
+	  write(6,*) 'applying autosizing'
+	  write(6,*) 'x and y frame width: ',-ixsize,-iysize
+	  ixsize=-2.*ixsize+2.*radius_max+(xmax-xmin)*rscale
+	  iysize=-2.*iysize+2.*radius_max+(ymax-ymin)*rscale
+	  ixsize=min(ixsize,3000)
+	  iysize=min(iysize,3000)
+	endif
+
+ 	endif
 c ***** OPEN OUTPUT FILES *****
-		ixsize=int(ixsize/2)*2
-		iysize=int(iysize/2)*2
-		  write(6,*) 'xsize and ysize: ',ixsize,iysize
-		  write(6,*)
-		 read(5,113) filename
-		 write(6,*) "output pnm filename: ",filename
-		 open(8,file=filename,form='formatted')
-		 write(8,1003) "P3"
- 1003		 format(a2)
-		 write(8,1004) iysize,ixsize
-		 write(8,1004) 255
-		 open(9,file="opacity.pnm",form='formatted')
-		 write(9,1003) "P3"
-		 write(9,1004) iysize,ixsize
-		 write(9,1004) 255
+	ixsize=int(ixsize/2)*2
+	iysize=int(iysize/2)*2
+	  write(6,*) 'xsize and ysize: ',ixsize,iysize
+	  write(6,*)
+	 read(5,113) filename
+	 write(6,*) "output pnm filename: ",filename
+	 open(8,file=filename,form='formatted')
+	 write(8,1003) "P3"
+ 1003	 format(a2)
+	 write(8,1004) iysize,ixsize
+	 write(8,1004) 255
+	 open(9,file="opacity.pnm",form='formatted')
+	 write(9,1003) "P3"
+	 write(9,1004) iysize,ixsize
+	 write(9,1004) 255
  1004	format(2i5)
- 113		format(a20)
+ 113	format(a20)
 c ***** APPLY TRANSLATION AND SCALING *****
-		do ia=1,n
-		 coord(1,ia)=(coord(1,ia)+xtran)*rscale
-		 coord(2,ia)=(coord(2,ia)+ytran)*rscale
- 		 coord(3,ia)=(coord(3,ia)+ztran)*rscale
- 114		enddo
+	do ia=1,n
+	 coord(1,ia)=(coord(1,ia)+xtran)*rscale
+	 coord(2,ia)=(coord(2,ia)+ytran)*rscale
+ 	 coord(3,ia)=(coord(3,ia)+ztran)*rscale
+ 114	enddo
 c ***** MAP SPHERICAL SURFACES OVER ATOMS *****
-		do ix=1,ixsize
-		do iy=1,iysize
- 		  pix(ix,iy,1)=0.
- 		  pix(ix,iy,2)=0.
- 		  pix(ix,iy,3)=0.
- 		  pix(ix,iy,4)=0.
-		  atom(ix,iy)=0
- 		  zpix(ix,iy)=-10000.
-		enddo
-		enddo
+	do ix=1,ixsize
+	do iy=1,iysize
+ 	  pix(ix,iy,1)=0.
+ 	  pix(ix,iy,2)=0.
+ 	  pix(ix,iy,3)=0.
+ 	  pix(ix,iy,4)=0.
+	  atom(ix,iy)=0
+ 	  zpix(ix,iy)=-10000.
+	enddo
+	enddo
 
-		if (n.gt.0) then
+	if (n.gt.0) then
 
-C ----- create the spherical shading map for atom types -----
-		do irad=1,16
-		ic=1
-		irlim=int(radtype(irad))
-		if (irlim.gt.100) then
-		  write(6,*) 'atoms radius * scale > 100'
-		  stop
-		endif
+c ----- create the spherical shading map for atom types -----
+	do irad=1,ndes
+	ic=1
+	irlim=int(radtype(irad))
+	if (irlim.gt.100) then
+	  write(6,*) 'atoms radius * scale > 100'
+	  stop
+	endif
 
-		do ix=-irlim-1,irlim+1
-		do iy=-irlim-1,irlim+1
-		x=float(ix)
-		y=float(iy)
-		d=sqrt(x*x+y*y)
-		if (d.gt.radtype(irad)) goto 350
-		z=sqrt(radtype(irad)**2-d*d)
-		sphdat(ic,1)=x
-		sphdat(ic,2)=y
-		sphdat(ic,3)=z
-		ic=ic+1
- 350		continue
-		enddo
- 352		enddo
-		numpix=ic-1
+	do ix=-irlim-1,irlim+1
+	do iy=-irlim-1,irlim+1
+	x=float(ix)
+	y=float(iy)
+	d=sqrt(x*x+y*y)
+	if (d.gt.radtype(irad)) goto 350
+	z=sqrt(radtype(irad)**2-d*d)
+	sphdat(ic,1)=x
+	sphdat(ic,2)=y
+	sphdat(ic,3)=z
+	ic=ic+1
+ 350	continue
+	enddo
+ 352	enddo
+	numpix=ic-1
 c ----- then map spherical surface over atoms of the proper type ------
-		icount=0
-		do iatom=1,n
-		if (type(iatom).ne.irad) goto 500
-		icount=icount+1
+	icount=0
+	do iatom=1,n
+	if (type(iatom).ne.irad) goto 500
+	icount=icount+1
 
-		if (coord(3,iatom).lt.0.) then
+	if (coord(3,iatom).lt.0.) then
 
-		do ipix=1,numpix
-		x=sphdat(ipix,1)+coord(1,iatom)+float(ixsize)/2.		
-		y=sphdat(ipix,2)+coord(2,iatom)+float(iysize)/2.
-		ix=int(x)
-		iy=int(y)
-		if ((x.gt.float(ixsize)).or.(x.lt.1.).or.
-     &              (y.gt.float(iysize)).or.(y.lt.1.)) goto 510
-		z=sphdat(ipix,3)+coord(3,iatom)		
-		if (z.gt.zpix(ix,iy)) then
-		 zpix(ix,iy)=z
-		 atom(ix,iy)=iatom
-		endif
- 510		continue
-		enddo
+	do ipix=1,numpix
+	x=sphdat(ipix,1)+coord(1,iatom)+float(ixsize)/2.		
+	y=sphdat(ipix,2)+coord(2,iatom)+float(iysize)/2.
+	ix=int(x)
+	iy=int(y)
+	if ((x.gt.float(ixsize)).or.(x.lt.1.).or.
+     &      (y.gt.float(iysize)).or.(y.lt.1.)) goto 510
+	z=sphdat(ipix,3)+coord(3,iatom)		
+	if (z.gt.zpix(ix,iy)) then
+	 zpix(ix,iy)=z
+	 atom(ix,iy)=iatom
+	endif
+ 510	continue
+	enddo
 
-		endif
+	endif
 
- 500		continue
-		enddo
-		write(6,*) icount,' spheres added of type: ',irad
+ 500	continue
+	enddo
+	write(6,*) icount,' spheres added of type: ',irad
 
- 340		enddo
-		write(6,*) 'shading maps written into depth buffer'
+ 340	enddo
+	write(6,*) 'shading maps written into depth buffer'
 
  	endif
 
 c***** CALCULATE SECOND DERIVATIVE OUTLINES ******
 c ---- find maximum and minimum z levels ---
-c		(note: I use a value of zpix=-10000. to distinguish background)
-		zpix_max=-100000.
-		zpix_min=100000.
-		do ix=1,ixsize
-		do iy=1,iysize
-		if (zpix(ix,iy).gt.zpix_max) zpix_max=zpix(ix,iy)
-		if ((zpix(ix,iy).ne.-10000.).and.
-     &		    (zpix(ix,iy).lt.zpix_min)) zpix_min=zpix(ix,iy)
-		enddo
-		enddo
-		zpix_max=min(zpix_max,0.)
-		zpix_spread=zpix_max-zpix_min
-		write(6,*) 'zpix_min,zpix_max ',zpix_min,zpix_max
+c	(note: I use a value of zpix=-10000. to distinguish background)
+	zpix_max=-100000.
+	zpix_min=100000.
+	do ix=1,ixsize
+	do iy=1,iysize
+	if (zpix(ix,iy).gt.zpix_max) zpix_max=zpix(ix,iy)
+	if ((zpix(ix,iy).ne.-10000.).and.
+     &	    (zpix(ix,iy).lt.zpix_min)) zpix_min=zpix(ix,iy)
+	enddo
+	enddo
+	zpix_max=min(zpix_max,0.)
+	zpix_spread=zpix_max-zpix_min
+	write(6,*) 'zpix_min,zpix_max ',zpix_min,zpix_max
 
 c ***** PROCESSING OF THE IMAGE BEGINS HERE*****
-		l_diff_min=l_diff_min*rscale
-		l_diff_max=l_diff_max*rscale
-		write(6,*) ' Pixel processing beginning '
-		do ix=1,ixsize
-		do iy=1,iysize
-		zpix(ix,iy)=min(zpix(ix,iy),0.)
- 2009		enddo
- 1009		enddo
+	l_diff_min=l_diff_min*rscale
+	l_diff_max=l_diff_max*rscale
+	write(6,*) ' Pixel processing beginning '
+	do ix=1,ixsize
+	do iy=1,iysize
+	zpix(ix,iy)=min(zpix(ix,iy),0.)
+ 2009	enddo
+ 1009	enddo
 
-		do ix=1,ixsize
-		do iy=1,iysize
+	do ix=1,ixsize
+	do iy=1,iysize
 
-c ***** SHADOW TESTING *****
-		psh=1.
-c		--- calculate conical shadows  ---
-		pconetot=1.
-		    if ((icone.ne.0).and.(atom(ix,iy).ne.0)) then	
-		do i=-50,50,5
-		do j=-50,50,5
-		  if ((ix+i.gt.0).and.(ix+i.lt.ixsize).and.
-     &                (iy+j.gt.0).and.(iy+j.lt.iysize)) then
-		  rzdiff=zpix(ix+i,iy+j)-zpix(ix,iy)
-		if (rzdiff.gt.rcone) then
-		 if (rtable(i,j)*coneangle.lt.rzdiff+rcone) then
-		pconetot=pconetot-pcone
-		 endif
-		 endif
-		 endif
-		enddo
-		enddo
-		pconetot=max(pconetot,pshadowmax)
-		endif
-c   		if (type(atom(ix,iy)).eq.16) psh=1.
+c ***** CONICAL SHADOW TESTING *****
+	pconetot=1.
+	if ((icone.ne.0).and.(atom(ix,iy).ne.0)) then	
+	do i=-50,50,5
+	do j=-50,50,5
+	  if ((ix+i.gt.0).and.(ix+i.lt.ixsize).and.
+     &        (iy+j.gt.0).and.(iy+j.lt.iysize)) then
+	  rzdiff=zpix(ix+i,iy+j)-zpix(ix,iy)
+	   if (rzdiff.gt.rcone) then
+	    if (rtable(i,j)*coneangle.lt.rzdiff+rcone) then
+	     pconetot=pconetot-pcone
+	    endif
+	   endif
+	  endif
+	enddo
+	enddo
+	pconetot=max(pconetot,pshadowmax)
+	endif
 c ***** CALCULATE THE FOG PERCENTAGE (DEPTH CUEING) *****
-		pfh=pfogh-(zpix_max-zpix(ix,iy))/zpix_spread*pfogdiff
-    		if (zpix(ix,iy).lt.zpix_min) pfh=1.
-    		if (type(atom(ix,iy)).eq.16) pfh=1.
+	pfh=pfogh-(zpix_max-zpix(ix,iy))/zpix_spread*pfogdiff
+    	if (zpix(ix,iy).lt.zpix_min) pfh=1.
 c ***** CALCULATE OUTLINES *****
-		g_opacity=0.
-		l_opacity=0.
-		if (illustrationflag.ne.0) then
+	g_opacity=0.
+	l_opacity=0.
+	if (illustrationflag.ne.0) then
 c ***** SUBUNIT OUTLINES *****
 c ---- (this replaces original calculation of first derivatives)
 
-		if ((ix.gt.1).and.(ix.lt.ixsize).and.
+	if ((ix.gt.1).and.(ix.lt.ixsize).and.
      &      (iy.gt.1).and.(iy.lt.iysize)) then
-c		--- calculate subunit 'derivatives'  ---
-		g=0.
-		r=0.
-		do i=-2,2
-		do j=-2,2
-		 if (abs(i*j).ne.4) then
-		  if (su(atom(ix,iy)).ne.su(atom(ix+i,iy+j))) r=r+1.
-                  if (abs(res(atom(ix,iy))-
-     &                res(atom(ix+i,iy+j))).gt.resdiff) g=g+1.
-		 endif
-		enddo
-		enddo
-c		--- opacities are 1 for completely opaque ---
-		g_opacity=min((g-g_low)/(g_high-g_low),1.)
-		r_opacity=min((r-r_low)/(r_high-r_low),1.)
-		g_opacity=max(g_opacity,r_opacity,0.)
-		endif
+c --- calculate subunit 'derivatives'  ---
+	g=0.
+	r=0.
+	do i=-2,2
+	do j=-2,2
+	 if (abs(i*j).ne.4) then
+	  if (su(atom(ix,iy)).ne.su(atom(ix+i,iy+j))) r=r+1.
+          if (abs(res(atom(ix,iy))-
+     &              res(atom(ix+i,iy+j))).gt.resdiff) g=g+1.
+	 endif
+	enddo
+	enddo
+c --- opacities are 1 for completely opaque ---
+	g_opacity=min((g-g_low)/(g_high-g_low),1.)
+	r_opacity=min((r-r_low)/(r_high-r_low),1.)
+	g_opacity=max(g_opacity,r_opacity,0.)
+	endif
 c ***** SECOND DERIVATIVE OUTLINES *****
-		if ((ix.gt.2).and.(ix.lt.ixsize-1).and.
+	if ((ix.gt.2).and.(ix.lt.ixsize-1).and.
      &      (iy.gt.2).and.(iy.lt.iysize-1)) then
-		rl=0.
-		l_opacity_ave=0.
-		do ixl=-1,1
-		do iyl=-1,1
-		ixc=ix+ixl
-		iyc=iy+iyl
+	rl=0.
+	l_opacity_ave=0.
+	do ixl=-1,1
+	do iyl=-1,1
+	ixc=ix+ixl
+	iyc=iy+iyl
+
 	if (ikernel.eq.1) then
  	 l(ixl,iyl)=abs(1./3. * ( 
      &	 -0.8*zpix(ixc-1,iyc-1)-1.*zpix(ixc-1,iyc)-0.8*zpix(ixc-1,iyc+1)-
@@ -608,8 +670,9 @@ c ***** SECOND DERIVATIVE OUTLINES *****
      &	 0.8* zpix(ixc+1,iyc-1)-1.*zpix(ixc+1,iyc)-0.8*zpix(ixc+1,iyc+1)
      &     ))
 	endif
+
 	if (ikernel.eq.2) then
-		 l(ixl,iyl)=abs(1./3. * ( 
+	 l(ixl,iyl)=abs(1./3. * ( 
      &	-0.8*zpix(ixc-1,iyc-1)-1.0*zpix(ixc-1,iyc)-0.8*zpix(ixc-1,iyc+1)-
      &	 1.0*zpix(ixc,iyc-1)+8.8*zpix(ixc,iyc)-1.0*zpix(ixc,iyc+1)-
      &	 0.8*zpix(ixc+1,iyc-1)-1.0*zpix(ixc+1,iyc)-0.8*zpix(ixc+1,iyc+1)-
@@ -619,51 +682,52 @@ c ***** SECOND DERIVATIVE OUTLINES *****
      &	 0.1*zpix(ixc-1,iyc-2)-0.2*zpix(ixc,iyc-2)-0.1*zpix(ixc+1,iyc-2)
      &     ))
 	endif
-	if (ikernel.eq.3) then
-		do i=-1,1
-		do j=-1,1
-			rd=abs(zpix(ix,iy)-zpix(ix+i,iy+j))
-			if (rd.gt.l_diff_min) then
-			rd=(rd-l_diff_min)/(l_diff_max-l_diff_min)
-			l(ixl,iyl)=l(ixl,iyl)+min(rd,1.)
-			endif
-		enddo
-		enddo
-	endif
-	if (ikernel.eq.4) then
-		do i=-2,2
-		do j=-2,2
-		 if (abs(i*j).ne.4) then
-			rd=abs(zpix(ix,iy)-zpix(ix+i,iy+j))
-			if (rd.gt.l_diff_min) then
-			rd=abs(zpix(ix,iy)-zpix(ix+i,iy+j))
-			rd=(rd-l_diff_min)/(l_diff_max-l_diff_min)
-			l(ixl,iyl)=l(ixl,iyl)+min(rd,1.)
-			endif
-		 endif
-		enddo
-		enddo
-	endif
-		l(ixl,iyl)=min((l(ixl,iyl)-l_low)/(l_high-l_low),1.)
-		l(ixl,iyl)=max(l(ixl,iyl),0.)
-		if (l(ixl,iyl).gt.0.) rl=rl+1.
-		l_opacity_ave=l_opacity_ave+l(ixl,iyl)
-		enddo
-		enddo
-		if (rl.ge.6.) then
-		l_opacity=l_opacity_ave/6.
-		else
-		l_opacity=l(0,0)
-		endif
-		l_opacity=min(l_opacity,1.)
-		l_opacity=max(l_opacity,0.)
-		endif
-c ---- combine subunit outlines and derivative outlines ----
-		l_opacity=max(l_opacity,g_opacity)
-		endif
-c ***** CALCULATE THE TOTAL PIXEL INTENSITY *****
 
-	psh=min(psh,pconetot)
+	if (ikernel.eq.3) then
+	do i=-1,1
+	do j=-1,1
+		rd=abs(zpix(ix,iy)-zpix(ix+i,iy+j))
+		if (rd.gt.l_diff_min) then
+		rd=(rd-l_diff_min)/(l_diff_max-l_diff_min)
+		l(ixl,iyl)=l(ixl,iyl)+min(rd,1.)
+		endif
+	enddo
+	enddo
+	endif
+
+	if (ikernel.eq.4) then
+	do i=-2,2
+	do j=-2,2
+	 if (abs(i*j).ne.4) then
+		rd=abs(zpix(ix,iy)-zpix(ix+i,iy+j))
+		if (rd.gt.l_diff_min) then
+		rd=abs(zpix(ix,iy)-zpix(ix+i,iy+j))
+		rd=(rd-l_diff_min)/(l_diff_max-l_diff_min)
+		l(ixl,iyl)=l(ixl,iyl)+min(rd,1.)
+		endif
+	 endif
+	enddo
+	enddo
+	endif
+
+	l(ixl,iyl)=min((l(ixl,iyl)-l_low)/(l_high-l_low),1.)
+	l(ixl,iyl)=max(l(ixl,iyl),0.)
+	if (l(ixl,iyl).gt.0.) rl=rl+1.
+	l_opacity_ave=l_opacity_ave+l(ixl,iyl)
+	enddo
+	enddo
+	if (rl.ge.6.) then
+	l_opacity=l_opacity_ave/6.
+	else
+	l_opacity=l(0,0)
+	endif
+	l_opacity=min(l_opacity,1.)
+	l_opacity=max(l_opacity,0.)
+	endif
+c ---- combine subunit outlines and derivative outlines ----
+	l_opacity=max(l_opacity,g_opacity)
+	endif
+c ***** CALCULATE THE TOTAL PIXEL INTENSITY *****
 	ropacity=0.
 	do icolor=1,3
 
@@ -672,6 +736,7 @@ c ***** CALCULATE THE TOTAL PIXEL INTENSITY *****
      &     (1.-pfh)*rfog(icolor) 
 
 	pix(ix,iy,icolor)=(1.-l_opacity)*rcolor
+
 c ----calculate pixel opacity
 	if (type(atom(ix,iy)).ne.0) ropacity=1.
 	pix(ix,iy,4)=max(ropacity,l_opacity)
@@ -691,82 +756,82 @@ c ----- PPM format -----
 	scanline(iscan)=max(scanline(iscan),0)
 	enddo
 	enddo
-	if (iras.ne.0) write(8,1002) (scanline(if),if=1,iysize*3)
-C -- write opacity
-	iscan=0
-	do iout=1,iysize
-	do ic=1,3
-	iscan=iscan+1
-	scanline(iscan)=int(pix(ix,iout,4)*255.)
-	scanline(iscan)=min(scanline(iscan),255)
-	scanline(iscan)=max(scanline(iscan),0)
-	enddo
-	enddo
-	if (iras.ne.0) write(9,1002) (scanline(if),if=1,iysize*3)
+	write(8,1002) (scanline(if),if=1,iysize*3)
  1002	format(20i4)
+C -- write opacity ----
+ciscan=0
+cdo iout=1,iysize
+cdo ic=1,3
+ciscan=iscan+1
+cscanline(iscan)=int(pix(ix,iout,4)*255.)
+cscanline(iscan)=min(scanline(iscan),255)
+cscanline(iscan)=max(scanline(iscan),0)
+cenddo
+cenddo
+cwrite(9,1002) (scanline(if),if=1,iysize*3)
 c ----- diagnostic ------
-		if (int(ix/20)*20.eq.int((float(ix)/20.)*20.)) then
-		 write(6,6669) (int(pix(ix,iyo,1)*9.),iyo=1,iysize,20)
+	if (int(ix/20)*20.eq.int((float(ix)/20.)*20.)) then
+	 write(6,6669) (int(pix(ix,iyo,1)*9.),iyo=1,iysize,20)
  6669	format(65i1)
-		endif
+	endif
 
- 1000		enddo
+ 1000	enddo
 
- 999		stop
-		end
+ 999	stop
+	end
 c--------------------------------------------------------------------
-		subroutine catenate(m1,m2)
-		real*4 m1(4,4),m2(4,4),m(4,4)
+	subroutine catenate(m1,m2)
+	real*4 m1(4,4),m2(4,4),m(4,4)
 c--------------------------------------------------------------------
-		m(1,1)=m1(1,1)*m2(1,1)+m1(2,1)*m2(1,2)+m1(3,1)*m2(1,3)+
-     &		       m1(4,1)*m2(1,4)
-		m(1,2)=m1(1,2)*m2(1,1)+m1(2,2)*m2(1,2)+m1(3,2)*m2(1,3)+
-     &		       m1(4,2)*m2(1,4)
-		m(1,3)=m1(1,3)*m2(1,1)+m1(2,3)*m2(1,2)+m1(3,3)*m2(1,3)+
-     &		       m1(4,3)*m2(1,4)
-		m(1,4)=m1(1,4)*m2(1,1)+m1(2,4)*m2(1,2)+m1(3,4)*m2(1,3)+
-     &		       m1(4,4)*m2(1,4)
-		m(2,1)=m1(1,1)*m2(2,1)+m1(2,1)*m2(2,2)+m1(3,1)*m2(2,3)+
-     &		       m1(4,1)*m2(2,4)
-		m(2,2)=m1(1,2)*m2(2,1)+m1(2,2)*m2(2,2)+m1(3,2)*m2(2,3)+
-     &		       m1(4,2)*m2(2,4)
-		m(2,3)=m1(1,3)*m2(2,1)+m1(2,3)*m2(2,2)+m1(3,3)*m2(2,3)+
-     &		       m1(4,3)*m2(2,4)
-		m(2,4)=m1(1,4)*m2(2,1)+m1(2,4)*m2(2,2)+m1(3,4)*m2(2,3)+
-     &		       m1(4,4)*m2(2,4)
-		m(3,1)=m1(1,1)*m2(3,1)+m1(2,1)*m2(3,2)+m1(3,1)*m2(3,3)+
-     &		       m1(4,1)*m2(3,4)
-		m(3,2)=m1(1,2)*m2(3,1)+m1(2,2)*m2(3,2)+m1(3,2)*m2(3,3)+
-     &		       m1(4,2)*m2(3,4)
-		m(3,3)=m1(1,3)*m2(3,1)+m1(2,3)*m2(3,2)+m1(3,3)*m2(3,3)+
-     &		       m1(4,3)*m2(3,4)
-		m(3,4)=m1(1,4)*m2(3,1)+m1(2,4)*m2(3,2)+m1(3,4)*m2(3,3)+
-     &		       m1(4,4)*m2(3,4)
-		m(4,1)=m1(1,1)*m2(4,1)+m1(2,1)*m2(4,2)+m1(3,1)*m2(4,3)+
-     &		       m1(4,1)*m2(4,4)
-		m(4,2)=m1(1,2)*m2(4,1)+m1(2,2)*m2(4,2)+m1(3,2)*m2(4,3)+
-     &		       m1(4,2)*m2(4,4)
-		m(4,3)=m1(1,3)*m2(4,1)+m1(2,3)*m2(4,2)+m1(3,3)*m2(4,3)+
-     &		       m1(4,3)*m2(4,4)
-		m(4,4)=m1(1,4)*m2(4,1)+m1(2,4)*m2(4,2)+m1(3,4)*m2(4,3)+
-     &		       m1(4,4)*m2(4,4)
-		do j=1,4
-		do i=1,4
- 100		m1(i,j)=m(i,j)
-		enddo
-		enddo
-		return
-		end
+	m(1,1)=m1(1,1)*m2(1,1)+m1(2,1)*m2(1,2)+m1(3,1)*m2(1,3)+
+     &	       m1(4,1)*m2(1,4)
+	m(1,2)=m1(1,2)*m2(1,1)+m1(2,2)*m2(1,2)+m1(3,2)*m2(1,3)+
+     &	       m1(4,2)*m2(1,4)
+	m(1,3)=m1(1,3)*m2(1,1)+m1(2,3)*m2(1,2)+m1(3,3)*m2(1,3)+
+     &	       m1(4,3)*m2(1,4)
+	m(1,4)=m1(1,4)*m2(1,1)+m1(2,4)*m2(1,2)+m1(3,4)*m2(1,3)+
+     &	       m1(4,4)*m2(1,4)
+	m(2,1)=m1(1,1)*m2(2,1)+m1(2,1)*m2(2,2)+m1(3,1)*m2(2,3)+
+     &	       m1(4,1)*m2(2,4)
+	m(2,2)=m1(1,2)*m2(2,1)+m1(2,2)*m2(2,2)+m1(3,2)*m2(2,3)+
+     &	       m1(4,2)*m2(2,4)
+	m(2,3)=m1(1,3)*m2(2,1)+m1(2,3)*m2(2,2)+m1(3,3)*m2(2,3)+
+     &	       m1(4,3)*m2(2,4)
+	m(2,4)=m1(1,4)*m2(2,1)+m1(2,4)*m2(2,2)+m1(3,4)*m2(2,3)+
+     &	       m1(4,4)*m2(2,4)
+	m(3,1)=m1(1,1)*m2(3,1)+m1(2,1)*m2(3,2)+m1(3,1)*m2(3,3)+
+     &	       m1(4,1)*m2(3,4)
+	m(3,2)=m1(1,2)*m2(3,1)+m1(2,2)*m2(3,2)+m1(3,2)*m2(3,3)+
+     &	       m1(4,2)*m2(3,4)
+	m(3,3)=m1(1,3)*m2(3,1)+m1(2,3)*m2(3,2)+m1(3,3)*m2(3,3)+
+     &	       m1(4,3)*m2(3,4)
+	m(3,4)=m1(1,4)*m2(3,1)+m1(2,4)*m2(3,2)+m1(3,4)*m2(3,3)+
+     &	       m1(4,4)*m2(3,4)
+	m(4,1)=m1(1,1)*m2(4,1)+m1(2,1)*m2(4,2)+m1(3,1)*m2(4,3)+
+     &	       m1(4,1)*m2(4,4)
+	m(4,2)=m1(1,2)*m2(4,1)+m1(2,2)*m2(4,2)+m1(3,2)*m2(4,3)+
+     &	       m1(4,2)*m2(4,4)
+	m(4,3)=m1(1,3)*m2(4,1)+m1(2,3)*m2(4,2)+m1(3,3)*m2(4,3)+
+     &	       m1(4,3)*m2(4,4)
+	m(4,4)=m1(1,4)*m2(4,1)+m1(2,4)*m2(4,2)+m1(3,4)*m2(4,3)+
+     &	       m1(4,4)*m2(4,4)
+	do j=1,4
+	do i=1,4
+ 	m1(i,j)=m(i,j)
+	enddo
+	enddo
+	return
+	end
 c--------------------------------------------------------------------
-		subroutine clearmatrix(m)
-		real*4 m(4,4)
+	subroutine clearmatrix(m)
+	real*4 m(4,4)
 c--------------------------------------------------------------------
-		do i=1,4
-		do j=1,4
-		x=0.
-		if (i.eq.j) x=1.
- 100		m(i,j)=x
-		enddo
-		enddo
-		return
-		end
+	do i=1,4
+	do j=1,4
+	x=0.
+	if (i.eq.j) x=1.
+1	m(i,j)=x
+	enddo
+	enddo
+	return
+	end
