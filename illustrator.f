@@ -105,7 +105,7 @@ c ***** ETC. *****
 	real*4 x,y,z,rx,ry,rz,xp,yp,zp,d
 	real*4 xn,yn,zn,ci,xs,xy,xz,cs
 	character*3 comcode(10),command
-	character*20 filename,inputfile
+	character*80 filename,inputfile
 	integer*4 ixsize,iysize, idepth
 	integer*4 ix,iy,iz
 	integer illustrationflag
@@ -306,6 +306,7 @@ c                         so upper half of molecule will be clipped
 c                AUT(O-CENTER) will center the rotated coordinates
 c                        in the frame, and place the uppermost atom
 c                        just below the image plane
+c		         (done when image processing begins)
 c       ROTATIONs are applied before the centering
 c       TRANSLATIONs are applied after the centering
  7	continue
@@ -498,7 +499,7 @@ c ***** OPEN OUTPUT FILES *****
 	 write(9,1004) iysize,ixsize
 	 write(9,1004) 255
  1004	format(2i5)
- 113	format(a20)
+ 113	format(a80)
 c ***** APPLY TRANSLATION AND SCALING *****
 	do ia=1,n
 	 coord(1,ia)=(coord(1,ia)+xtran)*rscale
@@ -757,18 +758,18 @@ c ----- PPM format -----
 	enddo
 	enddo
 	write(8,1002) (scanline(if),if=1,iysize*3)
+C -- write opacity
+	iscan=0
+	do iout=1,iysize
+	do ic=1,3
+	iscan=iscan+1
+	scanline(iscan)=int(pix(ix,iout,4)*255.)
+	scanline(iscan)=min(scanline(iscan),255)
+	scanline(iscan)=max(scanline(iscan),0)
+	enddo
+	enddo
+	write(9,1002) (scanline(if),if=1,iysize*3)
  1002	format(20i4)
-C -- write opacity ----
-ciscan=0
-cdo iout=1,iysize
-cdo ic=1,3
-ciscan=iscan+1
-cscanline(iscan)=int(pix(ix,iout,4)*255.)
-cscanline(iscan)=min(scanline(iscan),255)
-cscanline(iscan)=max(scanline(iscan),0)
-cenddo
-cenddo
-cwrite(9,1002) (scanline(if),if=1,iysize*3)
 c ----- diagnostic ------
 	if (int(ix/20)*20.eq.int((float(ix)/20.)*20.)) then
 	 write(6,6669) (int(pix(ix,iyo,1)*9.),iyo=1,iysize,20)
