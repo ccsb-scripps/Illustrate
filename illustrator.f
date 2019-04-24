@@ -1,5 +1,5 @@
 C                 ******************************
-C                      I L L U S T R A T E 
+C                      I L L U S T R A T E
 C                   Biomolecular Illustration
 C		  ******************************
 C		  copyright 2019 David S Goodsell
@@ -52,7 +52,7 @@ C HETATMFE---HEM-- 0,9999, 1.0,0.8,0.0, 1.8
 C HETATM-C---HEM-- 0,9999, 1.0,0.3,0.3, 1.6
 C HETATM-----HEM-- 0,9999, 1.0,0.1,0.1, 1.5
 C END                                          #end of READ commad
-C center                                       #CENTER command 
+C center                                       #CENTER command
 C auto                                         #use autocentering
 C trans                                        #TRANSLATION command
 C 0.,0.,0.                                     #x,y,z for translation
@@ -84,7 +84,7 @@ c ***** FRAME BUFFER CONTAINING THE ATOM NUMBER *****
 c ***** SHADING MAPS FOR THE EIGHT ATOM TYPES *****
 	real*4 sphdat(0:32000,3)
 	integer*4 numpix
-c ***** PHONG SHADING PARAMETERS ****** 
+c ***** PHONG SHADING PARAMETERS ******
 	real*4 colortype(0:1000,3)
 	real*4 rback(3),rfog(3)
 c ***** ATOMIC INFORMATION *****
@@ -110,9 +110,9 @@ c ***** ETC. *****
 	integer*4 ix,iy,iz
 	integer illustrationflag
 c ***** stuff for reading atoms
-	integer*4 resrange(2,100),inptype(100),inpsu(100)
-	character*6 atomdescriptor(100)
-	character*10 descriptor(100)
+	integer*4 resrange(2,1000),inptype(1000),inpsu(1000)
+	character*6 atomdescriptor(1000)
+	character*10 descriptor(1000)
 	character*80 instring
 c--------------------------------------------------------------------
 c ***** Initialize a few things *****
@@ -236,7 +236,7 @@ C --- assign subunits automatically ---
  7050 	continue
 	enddo
 	goto 7040
-c --- done reading atoms ---         
+c --- done reading atoms ---
  7009	write(6,*)' atoms read: ', n, ' from: ',inputfile
 	write(6,*) " number of subunits: ",nsu
 	write(6,*)' '
@@ -245,7 +245,7 @@ c --- done reading atoms ---
  300	format(30x,3f8.3)
 	goto 10
 c--------------------------------------------------------------------
-c       TRANSLATION 
+c       TRANSLATION
  2	continue
 	read(5,*) xtrani,ytrani,ztrani
 	xtran=xtran+xtrani
@@ -292,7 +292,7 @@ c	X ROTATION
 	call catenate(rm,matrixin)
 	goto 10
 c--------------------------------------------------------------------
-c       SCALE 
+c       SCALE
  6	continue
 	read(5,*) rscalei
 	rscale=rscale*rscalei
@@ -324,9 +324,9 @@ c       TRANSLATIONs are applied after the centering
 
 	goto 10
 c--------------------------------------------------------------------
-c	WORLD parameters that describe the environment 
+c	WORLD parameters that describe the environment
  8	continue
- 
+
 c param: rback(3) -- rgb of background, 0.-1.
 c param: rfog(3) -- rgb of fog, 0.-1.
 c param: pfogh,pfogl -- fractional intensity of fog color at front and back of molecule
@@ -367,7 +367,7 @@ c param: pshadowmax -- maximal shadowing amount (0.7) smaller=darker shadow
 	if (icone.ne.0) write (6,202) ' draw conical shadows'
 
 c param: ixsize,iysize -- vertical and horizonal size (pixels)
-c        negative values are autosized, padded by the value 
+c        negative values are autosized, padded by the value
 
 	read(5,*) ixsize,iysize
 
@@ -553,13 +553,13 @@ c ----- then map spherical surface over atoms of the proper type ------
 	if (coord(3,iatom).lt.0.) then
 
 	do ipix=1,numpix
-	x=sphdat(ipix,1)+coord(1,iatom)+float(ixsize)/2.		
+	x=sphdat(ipix,1)+coord(1,iatom)+float(ixsize)/2.
 	y=sphdat(ipix,2)+coord(2,iatom)+float(iysize)/2.
 	ix=int(x)
 	iy=int(y)
 	if ((x.gt.float(ixsize)).or.(x.lt.1.).or.
      &      (y.gt.float(iysize)).or.(y.lt.1.)) goto 510
-	z=sphdat(ipix,3)+coord(3,iatom)		
+	z=sphdat(ipix,3)+coord(3,iatom)
 	if (z.gt.zpix(ix,iy)) then
 	 zpix(ix,iy)=z
 	 atom(ix,iy)=iatom
@@ -609,7 +609,7 @@ c ***** PROCESSING OF THE IMAGE BEGINS HERE*****
 
 c ***** CONICAL SHADOW TESTING *****
 	pconetot=1.
-	if ((icone.ne.0).and.(atom(ix,iy).ne.0)) then	
+	if ((icone.ne.0).and.(atom(ix,iy).ne.0)) then
 	do i=-50,50,5
 	do j=-50,50,5
 	  if ((ix+i.gt.0).and.(ix+i.lt.ixsize).and.
@@ -665,7 +665,7 @@ c ***** SECOND DERIVATIVE OUTLINES *****
 	iyc=iy+iyl
 
 	if (ikernel.eq.1) then
- 	 l(ixl,iyl)=abs(1./3. * ( 
+ 	 l(ixl,iyl)=abs(1./3. * (
      &	 -0.8*zpix(ixc-1,iyc-1)-1.*zpix(ixc-1,iyc)-0.8*zpix(ixc-1,iyc+1)-
      &	 1.0* zpix(ixc,iyc-1)+7.2*zpix(ixc,iyc)-1.0*zpix(ixc,iyc+1)-
      &	 0.8* zpix(ixc+1,iyc-1)-1.*zpix(ixc+1,iyc)-0.8*zpix(ixc+1,iyc+1)
@@ -673,7 +673,7 @@ c ***** SECOND DERIVATIVE OUTLINES *****
 	endif
 
 	if (ikernel.eq.2) then
-	 l(ixl,iyl)=abs(1./3. * ( 
+	 l(ixl,iyl)=abs(1./3. * (
      &	-0.8*zpix(ixc-1,iyc-1)-1.0*zpix(ixc-1,iyc)-0.8*zpix(ixc-1,iyc+1)-
      &	 1.0*zpix(ixc,iyc-1)+8.8*zpix(ixc,iyc)-1.0*zpix(ixc,iyc+1)-
      &	 0.8*zpix(ixc+1,iyc-1)-1.0*zpix(ixc+1,iyc)-0.8*zpix(ixc+1,iyc+1)-
@@ -734,7 +734,7 @@ c ***** CALCULATE THE TOTAL PIXEL INTENSITY *****
 
 	rcolor=
      &     pfh*(pconetot*(colortype(type(atom(ix,iy)),icolor)))+
-     &     (1.-pfh)*rfog(icolor) 
+     &     (1.-pfh)*rfog(icolor)
 
 	pix(ix,iy,icolor)=(1.-l_opacity)*rcolor
 
