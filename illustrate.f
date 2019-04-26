@@ -4,7 +4,7 @@ C                   Biomolecular Illustration
 C		  ******************************
 C		  copyright 2019 David S Goodsell
 C
-C Licensed under the Apache License, Version 2.0 (the "License");
+C Licensed under the Apache License, Version 2.0 (the "License");  
 C you may not use this file except in compliance with the License.
 C You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 C Unless required by applicable law or agreed to in writing, software
