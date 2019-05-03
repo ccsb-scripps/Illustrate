@@ -1,0 +1,21 @@
+select all
+wireframe off
+cpk off
+backbone off
+select phosphorus
+backbone 100
+color chain
+select 1-115 and *:A
+color [0,0,255]
+select 1-115 and *:B
+color [0,255,0]
+select IN
+cpk 2.5
+color [255,200,100]
+select NCR
+cpk 1.5
+color [100,150,255]
+select NCO
+cpk 1.5
+color white
+

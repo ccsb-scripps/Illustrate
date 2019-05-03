@@ -1,0 +1,104 @@
+./quasisymmetry <<EOF
+quasi_71.pdb
+7,1,2000,7.5
+123
+EOF
+
+./rnapath << EOF
+quasi_71.pdb
+rnapath.pdb
+21,3058                      #number of points to interpolate
+38.                     #sphere radius
+234                     #random seed
+EOF
+
+./condense << EOF
+rnapath.pdb
+5UTR.const
+no.position
+rnapath_relax.pdb
+1 3058
+3059 6116
+-0.0001
+1,38.,38.       #cell size
+10000             #steps
+345                     #random seed
+EOF
+
+./makeconstraints << EOF
+rnapath_relax.pdb
+inpeaks.dat
+ncpeaks.dat
+non1.const
+non1.position
+15.              #max distance for crosslink
+0,0,1000           #nDIM,nTET, nNC
+456		#random seed
+EOF
+
+cat 5UTR.const >> non1.const
+
+./condense << EOF
+rnapath_relax.pdb
+non1.const
+non1.position
+HIVnucleoidnoIN.pdb
+1 3058
+3059 6116
+0.0005
+1,38.,38.       #cell size
+100000             #steps
+567		#random seed
+EOF
+
+./makeconstraints << EOF
+rnapath_relax.pdb
+inpeaks.dat
+ncpeaks.dat
+dim1.const
+dim1.position
+15.              #max distance for crosslink
+70,0,1000           #nDIM,nTET, nNC
+678		#random seed
+EOF
+
+cat 5UTR.const >> dim1.const
+
+./condense << EOF
+rnapath_relax.pdb
+dim1.const
+dim1.position
+HIVnucleoidINdim.pdb
+1 3058
+3059 6116
+0.0005
+1,38.,38.       #cell size
+100000             #steps
+432		#random seed
+EOF
+
+./makeconstraints << EOF
+rnapath_relax.pdb
+inpeaks.dat
+ncpeaks.dat
+tet1.const
+tet1.position
+15.              #max distance for crosslink
+0,35,1000           #nDIM,nTET, nNC
+543		#random seed
+EOF
+
+cat 5UTR.const >> tet1.const
+
+./condense << EOF
+rnapath_relax.pdb
+tet1.const
+tet1.position
+HIVnucleoidINtet.pdb
+1 3058
+3059 6116
+0.0005
+1,38.,38.       #cell size
+100000             #steps
+654		#random seed
+EOF
