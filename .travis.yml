@@ -1,0 +1,8 @@
+language: c
+sudo: required
+before_install:
+  - sudo apt-get install gfortran
+
+script:
+  - gfortran illustrate.f -o illustrate
+  - ./illustrate < 2hhb.inp
