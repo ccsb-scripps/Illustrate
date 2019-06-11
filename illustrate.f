@@ -13,13 +13,13 @@ C WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 C See the License for the specific language governing permissions and
 C limitations under the License
 C
-C This work was supported in part by the US National Institutes of Health R01-GM120604
-C    and the kind support of the RCSB Protein Data Bank
+C This work was supported by Damon Runyon-Walter Winchell Cancer Research Fund Fellowship DRG 972,
+C the US National Institutes of Health R01-GM120604 and the kind support of the RCSB Protein Data Bank.
 C
 C--------------------------------------------------------------------
 C
 C DS Goodsell & AJ Olson (1992) "Molecular Illustration in Black and White" JMolGraphics 10, 235-240.
-C April 2019 Simplified and released with only non-photorealistic rendering
+C April 2019 -- Simplified and released with only non-photorealistic rendering
 C
 C--------------------------------------------------------------------
 C compile: gfortran illustrate.f -o illustrate
@@ -96,9 +96,9 @@ c ***** ATOMIC INFORMATION *****
 c ***** transformation matrices *****
 	real*4 matrixin(4,4),rm(4,4)
 c ***** biological unit stuff *****
-	real*4 biomat(4,4,100)
+	real*4 biomat(4,4,500)
 	integer*4 nbiochain,nbiomat
-	character biochain(100)
+	character biochain(500)
 c ***** STUFF FOR OUTLINES *****
 	real*4 l_opacity,l_opacity_ave,g_opacity,opacity
 	real*4 l(-1:1,-1:1),g
@@ -147,7 +147,7 @@ c--------------------------------------------------------------------
 	iysize=0
 	do i=1,3
 	do j=1,4
-	do k=1,100
+	do k=1,500
 	biomat(i,j,k)=0.
 	if (i.eq.j) biomat(i,j,k)=1.
 	enddo
@@ -236,16 +236,16 @@ c --- read atoms and classify ---
 	   endif
 	  if (instring(14:19).eq."BIOMT1") then
 	    nbiomat=nbiomat+1
-	    read(instring(24:80),*) (biomat(1,j,nbiomat),j=1,4)
+	    read(instring(20:80),*) ib,(biomat(1,j,nbiomat),j=1,4)
  8030	    format(23x,5f10.6,f15.5)
 	  endif
 	  if (instring(14:19).eq."BIOMT2") then
 c    read(instring,8030) (biomat(2,j,nbiomat),j=1,4)
-	    read(instring(24:80),*) (biomat(2,j,nbiomat),j=1,4)
+	    read(instring(20:80),*) ib,(biomat(2,j,nbiomat),j=1,4)
 	  endif
 	  if (instring(14:19).eq."BIOMT3") then
 c    read(instring,8030) (biomat(3,j,nbiomat),j=1,4)
-	    read(instring(24:80),*) (biomat(3,j,nbiomat),j=1,4)
+	    read(instring(20:80),*) ib,(biomat(3,j,nbiomat),j=1,4)
 	  endif
 	  if (instring(14:19).eq."      ") then
 	    write(6,*) "Number of BIOMT ",nbiomat
@@ -580,10 +580,11 @@ c ***** OPEN OUTPUT FILES *****
  1003	 format(a2)
 	 write(8,1004) iysize,ixsize
 	 write(8,1004) 255
-	 open(9,file="opacity.pnm",form='formatted')
-	 write(9,1003) "P3"
-	 write(9,1004) iysize,ixsize
-	 write(9,1004) 255
+C this will write an file with opacities
+c open(9,file="opacity.pnm",form='formatted')
+c write(9,1003) "P3"
+c write(9,1004) iysize,ixsize
+c write(9,1004) 255
  1004	format(2i5)
  113	format(a80)
 c ***** MAP SPHERICAL SURFACES OVER ATOMS *****
@@ -875,16 +876,16 @@ c ----- PPM format -----
 	enddo
 	write(8,1002) (scanline(if),if=1,iysize*3)
 C -- write opacity
-	iscan=0
-	do iout=1,iysize
-	do ic=1,3
-	iscan=iscan+1
-	scanline(iscan)=int(pix(ix,iout,4)*255.)
-	scanline(iscan)=min(scanline(iscan),255)
-	scanline(iscan)=max(scanline(iscan),0)
-	enddo
-	enddo
-	write(9,1002) (scanline(if),if=1,iysize*3)
+ciscan=0
+cdo iout=1,iysize
+cdo ic=1,3
+ciscan=iscan+1
+cscanline(iscan)=int(pix(ix,iout,4)*255.)
+cscanline(iscan)=min(scanline(iscan),255)
+cscanline(iscan)=max(scanline(iscan),0)
+cenddo
+cenddo
+cwrite(9,1002) (scanline(if),if=1,iysize*3)
  1002	format(20i4)
 c ----- diagnostic ------
 	if (int(ix/20)*20.eq.int((float(ix)/20.)*20.)) then
