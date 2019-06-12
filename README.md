@@ -2,6 +2,7 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 **I L L U S T R A T E**
+
 Biomolecular Illustration
 copyright 2019 David S Goodsell
 
@@ -12,6 +13,7 @@ DS Goodsell & AJ Olson (1992) "Molecular Illustration in Black and White" JMolGr
 April 2019 Simplified and released with only non-photorealistic rendering
 
 **COMPILING AND RUNNING**
+
 Compile the fortran code:
 
     gfortran illustrate.f -o illustrate
@@ -23,6 +25,7 @@ Run the program:
 Command file is read from unit 5 (standard in), and a bunch of diagnostic stuff is written to unit 6 (standard out)
 
 **COMMAND FILE FORMAT**
+
 The command file has command cards (read, center, world, calculate, etc), followed by parameter cards needed for each command. Please issue command cards in this order:
 1. `read` — reads coordinates and selection/rendering parameters
 2. `center, translate, xrot, yrot, zrot, scale` commands, in any order
@@ -35,9 +38,12 @@ This program has many idiosyncracies and almost no error checking (beware…post
 Selection/rendering cards in the “read” command are read sequentially until one without “ATOM” or “HETATM” is found. Atoms are compared to cards in order, and if a match is found, the atom is assigned those parameters. This process provides a lot of flexibility with very few cards, if you’re clever about the order of cards and the use of wildcards. Any number of rotation cards may be added, and they are concatenated when added. This means they are effectively applied last to first, so if you’re progressively refining an orientation, add new rotations to the top of the list. Rotations are applied first, then centering, and finally translation. This ensures that the molecule is always centered in the view. Use the translation if you want it offset. Origin at upper left, +x down, +y left to right, +z towards viewer, molecules clipped at z=0
 
 **ABOUT THE OUTLINES**
+
 Outlines are created by calculating the local derivative of the z-value using a variety of kernels, then providing a range of values of these derivatives that will be given shades of gray and black. Outlines may be drawn based on the contours and outer shape of the molecule, between subunits, and based on the differences in the residue number in chains.
 
-**SAMPLE COMMAND FILE** for PDB entry 2hhb (Hemoglobin)
+**SAMPLE COMMAND FILE** 
+
+for PDB entry 2hhb (Hemoglobin)
 
     read                                        #READ command
     2hhb.pdb                                         #PDB format coordinate file
