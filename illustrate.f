@@ -218,7 +218,8 @@ c --- read atoms and classify ---
 
 	if (instring(12:25).eq."BIOMOLECULE: 1") then
  8010	  read(1,7100) instring
-	  if (instring(35:39).eq."CHAIN") then
+	  if ((instring(1:10).eq."REMARK 350").and.
+     &        (instring(35:40).eq."CHAINS")) then
 	    ich=43
  8020        if (instring(ich:ich).ne." ") then
 	       nbiochain=nbiochain+1
@@ -228,6 +229,12 @@ c --- read atoms and classify ---
 	     else
 	       continue
 	     endif
+	    write(6,*) "Chains in Biological Assembly"
+	    do i=1,nbiochain
+	      write(6,*) i,biochain(i)
+	    enddo
+	    write(6,*)
+	    goto 8010
 	   endif
 	  if (instring(14:19).eq."BIOMT1") then
 	    nbiomat=nbiomat+1
@@ -242,12 +249,8 @@ c    read(instring,8030) (biomat(2,j,nbiomat),j=1,4)
 c    read(instring,8030) (biomat(3,j,nbiomat),j=1,4)
 	    read(instring(20:80),*) ib,(biomat(3,j,nbiomat),j=1,4)
 	  endif
-	  if ((instring(8:10).ne."350").or.
-     &       (instring(12:25).eq."BIOMOLECULE: 2")) then
-	    do i=1,nbiochain
-	      write(6,*) "CHAIN ",i,biochain(i)
-	    enddo
-	    write(6,*)
+	  if (instring(14:19).eq."      ") then
+	    write(6,*) "Number of BIOMT ",nbiomat
 	    do ibio=1,nbiomat
 	    do im=1,3
 	     write(6,*) "BIOMAT ",ibio,(biomat(im,j,ibio),j=1,4)
@@ -258,8 +261,8 @@ c    read(instring,8030) (biomat(3,j,nbiomat),j=1,4)
 	  goto 8010
 
 	endif
- 8099	continue
 c --- end of BIOMAT
+ 8099	continue
 
 	if ((instring(1:4).ne.'ATOM').and.
      &      (instring(1:6).ne.'HETATM')) goto 7040
@@ -579,11 +582,10 @@ c ***** OPEN OUTPUT FILES *****
  1003	 format(a2)
 	 write(8,1004) iysize,ixsize
 	 write(8,1004) 255
-C this will write an file with opacities
-c open(9,file="opacity.pnm",form='formatted')
-c write(9,1003) "P3"
-c write(9,1004) iysize,ixsize
-c write(9,1004) 255
+	 open(9,file="opacity.pnm",form='formatted')
+	 write(9,1003) "P3"
+	 write(9,1004) iysize,ixsize
+	 write(9,1004) 255
  1004	format(2i5)
  113	format(a80)
 c ***** MAP SPHERICAL SURFACES OVER ATOMS *****
@@ -875,16 +877,16 @@ c ----- PPM format -----
 	enddo
 	write(8,1002) (scanline(if),if=1,iysize*3)
 C -- write opacity
-ciscan=0
-cdo iout=1,iysize
-cdo ic=1,3
-ciscan=iscan+1
-cscanline(iscan)=int(pix(ix,iout,4)*255.)
-cscanline(iscan)=min(scanline(iscan),255)
-cscanline(iscan)=max(scanline(iscan),0)
-cenddo
-cenddo
-cwrite(9,1002) (scanline(if),if=1,iysize*3)
+	iscan=0
+	do iout=1,iysize
+	do ic=1,3
+	iscan=iscan+1
+	scanline(iscan)=int(pix(ix,iout,4)*255.)
+	scanline(iscan)=min(scanline(iscan),255)
+	scanline(iscan)=max(scanline(iscan),0)
+	enddo
+	enddo
+	write(9,1002) (scanline(if),if=1,iysize*3)
  1002	format(20i4)
 c ----- diagnostic ------
 	if (int(ix/20)*20.eq.int((float(ix)/20.)*20.)) then
