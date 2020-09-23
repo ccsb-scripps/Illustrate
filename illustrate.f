@@ -218,7 +218,8 @@ c --- read atoms and classify ---
 
 	if (instring(12:25).eq."BIOMOLECULE: 1") then
  8010	  read(1,7100) instring
-	  if (instring(35:39).eq."CHAIN") then
+	  if ((instring(1:10).eq."REMARK 350").and.
+     &        (instring(35:40).eq."CHAINS")) then
 	    ich=43
  8020        if (instring(ich:ich).ne." ") then
 	       nbiochain=nbiochain+1
@@ -228,6 +229,12 @@ c --- read atoms and classify ---
 	     else
 	       continue
 	     endif
+	    write(6,*) "Chains in Biological Assembly"
+	    do i=1,nbiochain
+	      write(6,*) i,biochain(i)
+	    enddo
+	    write(6,*)
+	    goto 8010
 	   endif
 	  if (instring(14:19).eq."BIOMT1") then
 	    nbiomat=nbiomat+1
@@ -242,12 +249,8 @@ c    read(instring,8030) (biomat(2,j,nbiomat),j=1,4)
 c    read(instring,8030) (biomat(3,j,nbiomat),j=1,4)
 	    read(instring(20:80),*) ib,(biomat(3,j,nbiomat),j=1,4)
 	  endif
-	  if ((instring(8:10).ne."350").or.
-     &       (instring(12:25).eq."BIOMOLECULE: 2")) then
-	    do i=1,nbiochain
-	      write(6,*) "CHAIN ",i,biochain(i)
-	    enddo
-	    write(6,*)
+	  if (instring(14:19).eq."      ") then
+	    write(6,*) "Number of BIOMT ",nbiomat
 	    do ibio=1,nbiomat
 	    do im=1,3
 	     write(6,*) "BIOMAT ",ibio,(biomat(im,j,ibio),j=1,4)
@@ -258,8 +261,8 @@ c    read(instring,8030) (biomat(3,j,nbiomat),j=1,4)
 	  goto 8010
 
 	endif
- 8099	continue
 c --- end of BIOMAT
+ 8099	continue
 
 	if ((instring(1:4).ne.'ATOM').and.
      &      (instring(1:6).ne.'HETATM')) goto 7040
