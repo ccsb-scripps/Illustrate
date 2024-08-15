@@ -179,11 +179,11 @@ Contour outline parameters
 
 Subunit outline parameters
 
-    l_low, l_high (2 real) thresholds for gray to black (typically ~ 3.0-20.0)
+    r_low, r_high (2 real) thresholds for gray to black (typically ~ 3.0-20.0)
 
 Residue outline parameters
 
-    l_low, l_high (2 real) thresholds for gray to black (typically ~ 3.0-20.0)
+    g_low, g_high (2 real) thresholds for gray to black (typically ~ 3.0-20.0)
 
     resdiff (real) difference in residue numbers to draw outlines
 
